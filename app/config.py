@@ -5,7 +5,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Local: SQLite. Nuvem: a connection string do Neon, como o painel entrega:
 #   postgresql://usuario:senha@ep-xxx.sa-east-1.aws.neon.tech/neondb?sslmode=require
-DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{BASE_DIR / 'olx_monitor.db'}")
+# "or": no GitHub Actions um secret não configurado chega como string vazia
+DATABASE_URL = os.getenv("DATABASE_URL") or f"sqlite:///{BASE_DIR / 'olx_monitor.db'}"
 # O SQLAlchemy precisa saber o driver: postgresql:// -> postgresql+psycopg://
 for _prefix in ("postgres://", "postgresql://"):
     if DATABASE_URL.startswith(_prefix):

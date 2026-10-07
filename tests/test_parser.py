@@ -35,3 +35,15 @@ def test_html_fallback():
            '<span>R$ 2.000</span></a>'
     ads = parse_search_page(html)
     assert ads[0].olx_id == "1311112222" and ads[0].price == 2000.0
+
+
+def test_empty_database_url_falls_back_to_sqlite(monkeypatch):
+    import importlib
+
+    import app.config as config
+    monkeypatch.setenv("DATABASE_URL", "")
+    assert importlib.reload(config).DATABASE_URL.startswith("sqlite:///")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@host/db?sslmode=require")
+    assert importlib.reload(config).DATABASE_URL.startswith("postgresql+psycopg://")
+    monkeypatch.undo()
+    importlib.reload(config)
