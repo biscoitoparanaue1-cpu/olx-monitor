@@ -3,6 +3,20 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+
+def _load_dotenv(path: Path) -> None:
+    """Lê um .env simples (CHAVE=valor) sem sobrescrever variáveis já definidas."""
+    if not path.is_file():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, _, value = line.partition("=")
+            os.environ.setdefault(key.strip(), value.strip().strip("'\""))
+
+
+_load_dotenv(BASE_DIR / ".env")  # usado quando o scraper roda na sua máquina
+
 # Local: SQLite. Nuvem: a connection string do Neon, como o painel entrega:
 #   postgresql://usuario:senha@ep-xxx.sa-east-1.aws.neon.tech/neondb?sslmode=require
 # "or": no GitHub Actions um secret não configurado chega como string vazia
@@ -21,8 +35,12 @@ REQUEST_DELAY_RANGE = (3.0, 8.0)
 REQUEST_TIMEOUT = 30.0
 MAX_RETRIES = 3
 
-# Visitar a página de cada anúncio NOVO para pegar a descrição completa
+# Visitar a página dos anúncios ainda sem descrição (novos ou que falharam antes)
 FETCH_DETAILS_FOR_NEW = True
+MAX_DETAILS_PER_RUN = int(os.getenv("MAX_DETAILS_PER_RUN", "80"))
+
+# Proxy opcional (ex.: residencial), formato http://usuario:senha@host:porta
+OLX_PROXY = os.getenv("OLX_PROXY") or None
 
 # "auto": httpx primeiro, Playwright se bloquear | "httpx" | "playwright"
 FETCH_MODE = os.getenv("FETCH_MODE", "auto")

@@ -2,7 +2,11 @@ name: Scraper diário
 
 on:
   schedule:
-    - cron: "0 10 * * *"   # 10:00 UTC = 07:00 em Brasília
+    # 07:00, 10:00 e 13:00 em Brasília. A OLX às vezes bloqueia o IP do GitHub;
+    # as tentativas seguintes só rodam o que ainda não deu certo no dia.
+    - cron: "0 10 * * *"
+    - cron: "0 13 * * *"
+    - cron: "0 16 * * *"
   workflow_dispatch:        # botão "Run workflow" para rodar na hora
 
 jobs:
@@ -28,8 +32,9 @@ jobs:
       - name: Rodar scraper
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          OLX_PROXY: ${{ secrets.OLX_PROXY }}   # opcional
           OLX_DEBUG_DIR: debug
-        run: python -m app.jobs.daily
+        run: python -m app.jobs.daily --skip-if-done-today
 
       # Amostras de HTML (busca, anúncio, bloqueio) para diagnosticar mudanças na OLX
       - name: Guardar amostras de HTML

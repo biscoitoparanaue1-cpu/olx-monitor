@@ -97,3 +97,28 @@ def test_blocked_details_keep_search_results(db, search_html):
     assert run.status == "ok" and run.ads_new == 3
     assert "Detalhes bloqueados após 0 de 3" in run.error_message
     assert all(l.score is not None for l in db.scalars(select(Listing)))
+
+
+def test_later_run_fetches_missing_descriptions(db, search_html, ad_html):
+    class DetailsBlocked(FakeFetcher):
+        def get(self, url):
+            if "olx.com.br/brasil" in url:
+                return super().get(url)
+            raise BlockedError("captcha no anúncio")
+
+    term = make_term(db, pages=1)
+    run_search(db, term, DetailsBlocked({"1": search_html}))
+    assert db.scalar(select(func.count(Listing.id)).where(Listing.description.is_(None))) == 3
+    # Segunda tentativa no mesmo dia: nada novo, mas completa as descrições que faltaram
+    fetcher = FakeFetcher({"1": search_html}, detail=ad_html)
+    run = run_search(db, term, fetcher)
+    assert run.ads_new == 0 and run.error_message is None
+    assert sum("olx.com.br/brasil" not in u for u in fetcher.calls) == 3
+
+
+def test_skip_if_done_today(db, monkeypatch, search_html):
+    import app.jobs.daily as daily
+    term = make_term(db, pages=1)
+    assert not daily.done_today(db, term)
+    run_search(db, term, FakeFetcher({"1": search_html}), fetch_details=False)
+    assert daily.done_today(db, term)

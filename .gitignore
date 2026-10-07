@@ -6,3 +6,5 @@ __pycache__/
 *.zip
 .streamlit/secrets.toml
 debug/
+.env
+scraper.log

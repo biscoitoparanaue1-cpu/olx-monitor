@@ -142,7 +142,9 @@ def run_search(db: Session, term: SearchTerm, fetcher: Fetcher,
 
         detail_note = None
         if fetch_details:
-            for i, listing in enumerate(new_listings):
+            # Novos e os que ficaram sem descrição em execuções anteriores (ex.: bloqueio)
+            pending = [l for l in touched if not l.description][:config.MAX_DETAILS_PER_RUN]
+            for i, listing in enumerate(pending):
                 try:
                     enrich_with_details(db, fetcher, listing)
                     # Atualiza o grupo de preço com o que a descrição revelou
@@ -152,8 +154,8 @@ def run_search(db: Session, term: SearchTerm, fetcher: Fetcher,
                 except BlockedError as exc:
                     # A busca já foi salva; só para de abrir anúncios por hoje
                     db.rollback()
-                    detail_note = (f"Detalhes bloqueados após {i} de {len(new_listings)} "
-                                   f"anúncios novos: {exc}")
+                    detail_note = (f"Detalhes bloqueados após {i} de {len(pending)} "
+                                   f"anúncios sem descrição: {exc}")
                     log.warning(detail_note)
                     break
                 except Exception as exc:  # um anúncio ruim não derruba a execução

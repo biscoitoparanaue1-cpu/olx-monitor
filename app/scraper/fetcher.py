@@ -82,6 +82,17 @@ def polite_sleep(delay_range: tuple[float, float] = config.REQUEST_DELAY_RANGE) 
     time.sleep(random.uniform(*delay_range))
 
 
+def _playwright_proxy(url: str | None) -> dict | None:
+    if not url:
+        return None
+    from urllib.parse import urlparse
+    u = urlparse(url)
+    proxy = {"server": f"{u.scheme}://{u.hostname}:{u.port}"}
+    if u.username:
+        proxy |= {"username": u.username, "password": u.password or ""}
+    return proxy
+
+
 class Fetcher(Protocol):
     mode: str
 
@@ -100,6 +111,7 @@ class HttpxFetcher:
             headers=_headers(random.choice(USER_AGENTS)),
             timeout=config.REQUEST_TIMEOUT,
             follow_redirects=True,
+            proxy=config.OLX_PROXY,
         )
         self._first = True
 
@@ -147,7 +159,8 @@ class PlaywrightFetcher:
         self.delay_range = delay_range
         self._pw = sync_playwright().start()
         self._browser = self._pw.chromium.launch(
-            headless=headless, args=["--disable-blink-features=AutomationControlled"])
+            headless=headless, args=["--disable-blink-features=AutomationControlled"],
+            proxy=_playwright_proxy(config.OLX_PROXY))
         self._context = self._browser.new_context(
             user_agent=random.choice([u for u in USER_AGENTS if "Chrome" in u]),
             locale="pt-BR",
