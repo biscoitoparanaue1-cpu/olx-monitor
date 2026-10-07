@@ -1,0 +1,31 @@
+name: Scraper diário
+
+on:
+  schedule:
+    - cron: "0 10 * * *"   # 10:00 UTC = 07:00 em Brasília
+  workflow_dispatch:        # botão "Run workflow" para rodar na hora
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Instalar dependências
+        run: |
+          pip install -r requirements.txt playwright playwright-stealth
+          python -m playwright install --with-deps chromium
+
+      - name: Testes
+        run: python -m pytest -q
+
+      - name: Rodar scraper
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python -m app.jobs.daily

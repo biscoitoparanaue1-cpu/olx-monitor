@@ -1,0 +1,5 @@
+[theme]
+primaryColor = "#6E0AD6"   # roxo OLX
+
+[browser]
+gatherUsageStats = false
