@@ -51,6 +51,20 @@ def _headers(user_agent: str) -> dict[str, str]:
     }
 
 
+CHALLENGE_WAIT_MS = 20000
+
+
+def describe_page(html: str) -> str:
+    """Resumo de uma página para o log: título, tamanho e marcadores encontrados."""
+    from app.scraper.parser import BLOCK_MARKERS, DATA_MARKERS
+
+    title = re.search(r"<title[^>]*>(.*?)</title>", html, re.S | re.I)
+    found = [m for m in BLOCK_MARKERS + DATA_MARKERS if m in html]
+    text = re.sub(r"\s+", " ", re.sub(r"<(script|style)[^>]*>.*?</\1>|<[^>]+>", " ", html, flags=re.S))
+    return (f"title={title.group(1).strip()[:80] if title else None!r} len={len(html)} "
+            f"marcadores={found} texto={text.strip()[:300]!r}")
+
+
 def save_debug_html(kind: str, url: str, html: str) -> None:
     """Com OLX_DEBUG_DIR definido, guarda o HTML (o GitHub Actions publica como artefato)."""
     folder = os.getenv("OLX_DEBUG_DIR")
@@ -99,6 +113,7 @@ class HttpxFetcher:
                 resp = self.client.get(url)
                 if resp.status_code in (403, 429) or looks_blocked(resp.text):
                     save_debug_html("blocked", url, resp.text)
+                    log.info("Resposta bloqueada: %s", describe_page(resp.text))
                     # Troca de identidade antes de tentar de novo
                     self.client.headers.update(_headers(random.choice(USER_AGENTS)))
                     raise BlockedError(f"HTTP {resp.status_code} em {url}")
@@ -162,8 +177,16 @@ class PlaywrightFetcher:
         self._page.mouse.wheel(0, random.randint(800, 2000))
         self._page.wait_for_timeout(random.randint(1200, 2500))
         html = self._page.content()
+        # Desafio JavaScript (ex.: "Just a moment...") costuma se resolver sozinho num
+        # navegador de verdade em alguns segundos: espera antes de desistir
+        waited = 0
+        while looks_blocked(html) and waited < CHALLENGE_WAIT_MS:
+            self._page.wait_for_timeout(3000)
+            waited += 3000
+            html = self._page.content()
         if looks_blocked(html):
             save_debug_html("blocked", url, html)
+            log.warning("Página bloqueada: %s", describe_page(html))
             raise BlockedError(f"Playwright também bloqueado em {url}")
         save_debug_html("busca" if "?q=" in url else "anuncio", url, html)
         return html
