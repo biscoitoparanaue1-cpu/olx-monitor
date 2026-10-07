@@ -140,21 +140,27 @@ def run_search(db: Session, term: SearchTerm, fetcher: Fetcher,
                     new_listings.append(listing)
             db.commit()
 
+        detail_note = None
         if fetch_details:
-            for listing in new_listings:
+            for i, listing in enumerate(new_listings):
                 try:
                     enrich_with_details(db, fetcher, listing)
                     # Atualiza o grupo de preço com o que a descrição revelou
                     listing.category = get_or_create_category(
                         db, listing.brand, listing.model_line, listing.screen_size)
                     db.commit()
-                except BlockedError:
-                    raise
+                except BlockedError as exc:
+                    # A busca já foi salva; só para de abrir anúncios por hoje
+                    db.rollback()
+                    detail_note = (f"Detalhes bloqueados após {i} de {len(new_listings)} "
+                                   f"anúncios novos: {exc}")
+                    log.warning(detail_note)
+                    break
                 except Exception as exc:  # um anúncio ruim não derruba a execução
                     log.warning("Falha no detalhe de %s: %s", listing.olx_id, exc)
                     db.rollback()
 
-        run.status = "ok"
+        run.status, run.error_message = "ok", detail_note
     except BlockedError as exc:
         db.rollback()
         run.status, run.error_message = "blocked", str(exc)

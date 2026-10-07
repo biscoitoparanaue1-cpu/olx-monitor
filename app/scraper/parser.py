@@ -17,10 +17,13 @@ from typing import Any, Iterator
 
 from bs4 import BeautifulSoup
 
+# "challenge-platform" ficou de fora: o Cloudflare injeta esse script em páginas normais
 BLOCK_MARKERS = (
-    "cf-chl", "challenge-platform", "Just a moment", "px-captcha",
-    "Access Denied", "captcha-delivery", "Attention Required",
+    "cf-chl", "Just a moment", "px-captcha", "Access Denied", "captcha-delivery",
+    "Attention Required",
 )
+# Se a página traz os dados do anúncio, não é bloqueio, mesmo com scripts anti-bot no HTML
+DATA_MARKERS = ("__NEXT_DATA__", 'id="initial-data"', "application/ld+json")
 
 
 @dataclass
@@ -45,8 +48,10 @@ class BlockedError(Exception):
 
 
 def looks_blocked(html: str) -> bool:
-    head = html[:20000]
-    return any(m in head for m in BLOCK_MARKERS) and "__NEXT_DATA__" not in head
+    if any(m in html for m in DATA_MARKERS):
+        return False
+    head = html[:30000]
+    return any(m in head for m in BLOCK_MARKERS)
 
 
 # ---------------------------------------------------------------- utilidades

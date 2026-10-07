@@ -8,8 +8,11 @@ bloquear o httpx. AutoFetcher tenta o primeiro e cai para o segundo.
 from __future__ import annotations
 
 import logging
+import os
 import random
+import re
 import time
+from pathlib import Path
 from typing import Protocol
 
 import httpx
@@ -48,6 +51,19 @@ def _headers(user_agent: str) -> dict[str, str]:
     }
 
 
+def save_debug_html(kind: str, url: str, html: str) -> None:
+    """Com OLX_DEBUG_DIR definido, guarda o HTML (o GitHub Actions publica como artefato)."""
+    folder = os.getenv("OLX_DEBUG_DIR")
+    if not folder:
+        return
+    path = Path(folder)
+    path.mkdir(parents=True, exist_ok=True)
+    if kind != "blocked" and any(path.glob(f"{kind}-*.html")):
+        return  # uma amostra de cada tipo basta
+    slug = re.sub(r"[^a-z0-9]+", "-", url.lower())[-60:]
+    (path / f"{kind}-{int(time.time())}-{slug}.html").write_text(html, encoding="utf-8")
+
+
 def polite_sleep(delay_range: tuple[float, float] = config.REQUEST_DELAY_RANGE) -> None:
     time.sleep(random.uniform(*delay_range))
 
@@ -82,10 +98,12 @@ class HttpxFetcher:
             try:
                 resp = self.client.get(url)
                 if resp.status_code in (403, 429) or looks_blocked(resp.text):
+                    save_debug_html("blocked", url, resp.text)
                     # Troca de identidade antes de tentar de novo
                     self.client.headers.update(_headers(random.choice(USER_AGENTS)))
                     raise BlockedError(f"HTTP {resp.status_code} em {url}")
                 resp.raise_for_status()
+                save_debug_html("busca" if "?q=" in url else "anuncio", url, resp.text)
                 return resp.text
             except (httpx.HTTPError, BlockedError) as exc:
                 last_exc = exc
@@ -145,7 +163,9 @@ class PlaywrightFetcher:
         self._page.wait_for_timeout(random.randint(1200, 2500))
         html = self._page.content()
         if looks_blocked(html):
+            save_debug_html("blocked", url, html)
             raise BlockedError(f"Playwright também bloqueado em {url}")
+        save_debug_html("busca" if "?q=" in url else "anuncio", url, html)
         return html
 
     def close(self) -> None:

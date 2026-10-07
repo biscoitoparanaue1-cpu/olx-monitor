@@ -83,3 +83,17 @@ def test_blocked_run_is_recorded(db):
     term = make_term(db)
     run = run_search(db, term, FakeFetcher({}, blocked=True))
     assert run.status == "blocked" and "captcha" in run.error_message
+
+
+def test_blocked_details_keep_search_results(db, search_html):
+    class DetailsBlocked(FakeFetcher):
+        def get(self, url):
+            if "olx.com.br/brasil" in url:
+                return super().get(url)
+            raise BlockedError("captcha no anúncio")
+
+    term = make_term(db, pages=1)
+    run = run_search(db, term, DetailsBlocked({"1": search_html}))
+    assert run.status == "ok" and run.ads_new == 3
+    assert "Detalhes bloqueados após 0 de 3" in run.error_message
+    assert all(l.score is not None for l in db.scalars(select(Listing)))

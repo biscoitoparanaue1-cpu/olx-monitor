@@ -47,3 +47,9 @@ def test_empty_database_url_falls_back_to_sqlite(monkeypatch):
     assert importlib.reload(config).DATABASE_URL.startswith("postgresql+psycopg://")
     monkeypatch.undo()
     importlib.reload(config)
+
+
+def test_cloudflare_script_on_normal_page_is_not_a_block(ad_html):
+    page = ad_html.replace("<head></head>",
+                           '<head><script src="/cdn-cgi/challenge-platform/scripts/jsd/main.js"></script></head>')
+    assert parse_ad_page(page).olx_id == "1300000003"

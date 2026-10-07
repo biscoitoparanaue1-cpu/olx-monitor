@@ -28,4 +28,15 @@ jobs:
       - name: Rodar scraper
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          OLX_DEBUG_DIR: debug
         run: python -m app.jobs.daily
+
+      # Amostras de HTML (busca, anúncio, bloqueio) para diagnosticar mudanças na OLX
+      - name: Guardar amostras de HTML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: olx-html
+          path: debug/
+          if-no-files-found: ignore
+          retention-days: 3
