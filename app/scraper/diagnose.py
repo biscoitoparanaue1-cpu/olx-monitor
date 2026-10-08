@@ -44,6 +44,28 @@ def ad_like(data) -> list[dict]:
             any(k in d for k in ("subject", "title"))]
 
 
+def check_images(urls: list[str]) -> None:
+    """As fotos abrem fora da OLX? (o painel mostra as fotos direto do servidor de imagens)"""
+    import httpx
+
+    from app.scraper.fetcher import USER_AGENTS
+    referers = {"sem referer": None, "painel streamlit": "https://olx-monitor.streamlit.app/",
+                "olx": "https://www.olx.com.br/"}
+    with httpx.Client(timeout=20, follow_redirects=True) as client:
+        for url in urls:
+            for name, ref in referers.items():
+                headers = {"User-Agent": USER_AGENTS[0], "Accept": "image/avif,image/webp,image/*,*/*;q=0.8"}
+                if ref:
+                    headers["Referer"] = ref
+                try:
+                    r = client.get(url, headers=headers)
+                    out(f"--- foto {url[-30:]} ({name}): HTTP {r.status_code} "
+                        f"{r.headers.get('content-type')} {len(r.content)} bytes "
+                        f"server={r.headers.get('server')}")
+                except httpx.HTTPError as exc:
+                    out(f"--- foto {url[-30:]} ({name}): erro {exc!r}")
+
+
 def main(query: str = "TV LG OLED") -> None:
     OUT.mkdir(exist_ok=True)
     fetcher = make_fetcher()
@@ -85,6 +107,7 @@ def main(query: str = "TV LG OLED") -> None:
         out(f"parse_search_page: {len(parsed)} anúncios")
         for a in parsed[:5]:
             out(f"  {a.olx_id} | {a.title[:120]!r} | preço={a.price} | img={bool(a.image_url)} | {a.url[:90]}")
+        check_images([a.image_url for a in parsed if a.image_url][:2])
 
         if parsed and "--com-detalhe" in sys.argv:
             for n, item in enumerate(parsed[:3], 1):
