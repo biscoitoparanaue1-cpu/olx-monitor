@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 from app.scraper.fetcher import describe_page, make_fetcher
-from app.scraper.parser import _initial_data, _next_data, _walk, parse_ad_page, parse_search_page
+from app.scraper.parser import BlockedError, _initial_data, _next_data, _walk, parse_ad_page, parse_search_page
 
 OUT = Path("diagnostico")
 lines: list[str] = []
@@ -89,7 +89,11 @@ def main(query: str = "TV LG OLED") -> None:
         if parsed and "--com-detalhe" in sys.argv:
             for n, item in enumerate(parsed[:3], 1):
                 detail_url = item.url
-                dhtml = fetcher.get(detail_url)
+                try:
+                    dhtml = fetcher.get(detail_url)
+                except BlockedError as exc:
+                    out("\n=== ANÚNCIO bloqueado:", exc)
+                    break
                 (OUT / f"anuncio-{n}.html").write_text(dhtml, encoding="utf-8")
                 out("\n=== ANÚNCIO", detail_url)
                 out(describe_page(dhtml)[:400])
