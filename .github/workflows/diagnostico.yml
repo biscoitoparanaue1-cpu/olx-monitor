@@ -3,6 +3,9 @@ name: Diagnóstico da OLX
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   diagnose:
     runs-on: ubuntu-latest
@@ -16,4 +19,15 @@ jobs:
       - run: |
           pip install -r requirements.txt playwright playwright-stealth
           python -m playwright install --with-deps chromium
-      - run: python -m app.scraper.diagnose "TV LG OLED"
+      - run: python -m app.scraper.diagnose "TV LG OLED" --com-detalhe
+      # Guarda as páginas num branch à parte para ajustar o parser com HTML real
+      - name: Publica as páginas no branch diagnostico-paginas
+        run: |
+          cp diagnostico.txt diagnostico/
+          cd diagnostico
+          git init -q -b diagnostico-paginas
+          git config user.name github-actions
+          git config user.email github-actions@users.noreply.github.com
+          git add -A
+          git commit -qm "Páginas da OLX (execução $GITHUB_RUN_ID)"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" diagnostico-paginas

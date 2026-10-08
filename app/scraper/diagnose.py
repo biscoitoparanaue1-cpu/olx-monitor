@@ -87,30 +87,29 @@ def main(query: str = "TV LG OLED") -> None:
             out(f"  {a.olx_id} | {a.title[:120]!r} | preço={a.price} | img={bool(a.image_url)} | {a.url[:90]}")
 
         if parsed and "--com-detalhe" in sys.argv:
-            detail_url = parsed[0].url
-            dhtml = fetcher.get(detail_url)
-            (OUT / "anuncio.html").write_text(dhtml, encoding="utf-8")
-            out("\n=== ANÚNCIO", detail_url)
-            out(describe_page(dhtml)[:400])
-            for name, d in (("__NEXT_DATA__", _next_data(dhtml)), ("initial-data", _initial_data(dhtml))):
-                out(f"{name}:", bool(d))
-                if d:
-                    pp = d.get("props", {}).get("pageProps", {}) if "props" in d else d
-                    out("  chaves:", list(pp)[:40])
-                    cands = ad_like(d)
-                    out("  objetos com cara de anúncio:", len(cands),
-                        [(c.get("listId") or c.get("adId"), (c.get("subject") or c.get("title") or "")[:40])
-                         for c in cands[:5]])
-                    if cands:
-                        out("  1º objeto (JSON):", json.dumps(cands[0], ensure_ascii=False, default=str)[:5000])
-            ld = dhtml.count("application/ld+json")
-            out("blocos JSON-LD:", ld)
-            ad = parse_ad_page(dhtml)
-            if ad:
-                out(f"parse_ad_page: {ad.olx_id} | {ad.title[:60]!r} | preço={ad.price} | "
-                    f"desc={(ad.description or '')[:200]!r}")
-            else:
-                out("parse_ad_page: None")
+            for n, item in enumerate(parsed[:3], 1):
+                detail_url = item.url
+                dhtml = fetcher.get(detail_url)
+                (OUT / f"anuncio-{n}.html").write_text(dhtml, encoding="utf-8")
+                out("\n=== ANÚNCIO", detail_url)
+                out(describe_page(dhtml)[:400])
+                for name, d in (("__NEXT_DATA__", _next_data(dhtml)), ("initial-data", _initial_data(dhtml))):
+                    out(f"{name}:", bool(d))
+                    if d and n == 1:
+                        pp = d.get("props", {}).get("pageProps", {}) if "props" in d else d
+                        out("  chaves:", list(pp)[:40])
+                        cands = ad_like(d)
+                        out("  objetos com cara de anúncio:", len(cands),
+                            [(c.get("listId") or c.get("adId"), (c.get("subject") or c.get("title") or "")[:40])
+                             for c in cands[:5]])
+                        if cands:
+                            out("  1º objeto (JSON):", json.dumps(cands[0], ensure_ascii=False, default=str)[:5000])
+                ad = parse_ad_page(dhtml)
+                if ad:
+                    out(f"parse_ad_page: {ad.olx_id} | {ad.title[:60]!r} | preço={ad.price} | "
+                        f"img={bool(ad.image_url)} | desc={(ad.description or '')[:200]!r}")
+                else:
+                    out("parse_ad_page: None")
     finally:
         fetcher.close()
         Path("diagnostico.txt").write_text("\n".join(lines), encoding="utf-8")
