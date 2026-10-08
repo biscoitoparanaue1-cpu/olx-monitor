@@ -17,13 +17,13 @@ from __future__ import annotations
 
 import math
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.models import (
-    Feedback, FeatureWeight, FilterRule, Listing, ListingScore, ModelVersion,
+    Feedback, FeatureWeight, FeedbackNote, FilterRule, Listing, ListingScore, ModelVersion,
 )
-from app.scoring.features import extract_features
+from app.scoring.features import extract_features, note_tokens
 from app.scraper.service import utcnow
 
 DEFAULT_WEIGHTS: dict[str, float] = {
@@ -41,6 +41,7 @@ MIN_FEEDBACK = 5        # cliques mínimos (com 👍 e 👎) para treinar
 KEEP_VERSIONS = 10      # versões antigas guardadas (para comparar/voltar)
 PRIOR_STRENGTH = 0.5    # quanto o modelo resiste a se afastar dos pesos iniciais (simulação: 0.5 aprende mais rápido que 2.0)
 EPOCHS, LEARNING_RATE = 400, 0.5
+NOTE_WEIGHT, NOTE_CAP = 0.5, 2.0  # peso por menção de uma palavra nos seus comentários
 
 
 def sigmoid(x: float) -> float:
@@ -51,7 +52,23 @@ def prior_weights(db: Session) -> dict[str, float]:
     w = dict(DEFAULT_WEIGHTS)
     for r in db.scalars(select(FilterRule).where(FilterRule.is_active.is_(True))):
         w[f"regra:{r.id}"] = r.weight
+    for k, v in note_word_weights(db).items():
+        w[k] = w.get(k, 0.0) + v
     return w
+
+
+def note_word_weights(db: Session) -> dict[str, float]:
+    """Palavras dos seus comentários viram peso inicial: + no que gostou, - no que não gostou.
+
+    Vale na hora (antes mesmo dos 5 cliques) e o treino parte desses pesos.
+    """
+    w: dict[str, float] = {}
+    for n in db.scalars(select(FeedbackNote)):
+        for tok in note_tokens(n.liked):
+            w[f"palavra:{tok}"] = w.get(f"palavra:{tok}", 0.0) + NOTE_WEIGHT
+        for tok in note_tokens(n.disliked):
+            w[f"palavra:{tok}"] = w.get(f"palavra:{tok}", 0.0) - NOTE_WEIGHT
+    return {k: max(-NOTE_CAP, min(NOTE_CAP, v)) for k, v in w.items() if v}
 
 
 def active_model(db: Session) -> tuple[int, dict[str, float]]:
@@ -131,14 +148,22 @@ def rescore(db: Session, listings: list[Listing] | None = None) -> int:
     if listings is None:
         listings = list(db.scalars(select(Listing).where(Listing.is_active.is_(True))))
     version, weights = active_model(db)
+    updates = []
     for l in listings:
         s, contrib = score_features(weights, extract_features(l))
+        why = explain(contrib)
         if l.score:
-            l.score.score, l.score.model_version = s, version
-            l.score.features_json, l.score.computed_at = explain(contrib), utcnow()
+            if (l.score.model_version, l.score.features_json) == (version, why) \
+                    and abs(l.score.score - s) < 1e-6:
+                continue  # nada mudou: não escreve
+            updates.append({"listing_id": l.id, "score": s, "model_version": version,
+                            "features_json": why, "computed_at": utcnow()})
         else:
             l.score = ListingScore(listing_id=l.id, score=s, model_version=version,
-                                   features_json=explain(contrib), computed_at=utcnow())
+                                   features_json=why, computed_at=utcnow())
+    if updates:  # tudo de uma vez, em vez de um UPDATE por anúncio
+        db.execute(update(ListingScore), updates)
+        db.expire_all()
     db.flush()
     return len(listings)
 

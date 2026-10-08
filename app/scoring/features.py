@@ -19,6 +19,15 @@ esta estao tem bem bom boa estado ela ele isso este essa esse aqui apenas valor 
 TOKEN = re.compile(r"[a-z]{4,}")
 
 
+NOTE_STOPWORDS = set("gostei gosto gostar curti achei acho quero queria nao porque pois".split())
+
+
+def note_tokens(text: str | None) -> set[str]:
+    """Palavras de um comentário seu, no mesmo formato das palavras do anúncio."""
+    return {w for w in TOKEN.findall(normalize(text or ""))
+            if w not in STOPWORDS and w not in NOTE_STOPWORDS}
+
+
 def text_tokens(l: Listing) -> set[str]:
     """Palavras relevantes do título e da descrição.
 

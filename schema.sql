@@ -127,6 +127,17 @@ CREATE TABLE feedback (
 	FOREIGN KEY(listing_id) REFERENCES listings (id) ON DELETE CASCADE
 );
 
+CREATE TABLE feedback_notes (
+	id INTEGER NOT NULL, 
+	listing_id INTEGER NOT NULL, 
+	liked TEXT, 
+	disliked TEXT, 
+	updated_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL, 
+	PRIMARY KEY (id), 
+	UNIQUE (listing_id), 
+	FOREIGN KEY(listing_id) REFERENCES listings (id) ON DELETE CASCADE
+);
+
 CREATE TABLE listing_rule_matches (
 	listing_id INTEGER NOT NULL, 
 	rule_id INTEGER NOT NULL, 

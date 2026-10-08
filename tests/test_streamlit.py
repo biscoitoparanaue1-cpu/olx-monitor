@@ -3,7 +3,7 @@ from pathlib import Path
 from streamlit.testing.v1 import AppTest
 
 from app.db import Base, SessionLocal, engine
-from app.models import Feedback
+from app.models import Feedback, FeedbackNote
 from tests.test_api import add_listing
 
 APP = str(Path(__file__).resolve().parent.parent / "streamlit_app.py")
@@ -31,6 +31,15 @@ def test_dashboard_renders_and_records_feedback():
     at.sidebar.multiselect[0].set_value(["tela"]).run()
     assert [b.key for b in at.button if b.key and b.key.startswith("up")] == [f"up{lid + 1}"]
     at.sidebar.multiselect[0].set_value([]).run()
+
+    # Comentário do que gostou / não gostou vai para o banco
+    at.text_area(key=f"liked{lid}").set_value("backlight barato")
+    at.text_area(key=f"disliked{lid}").set_value("longe")
+    next(b for b in at.button if b.label == "Salvar comentário").click().run()
+    assert not at.exception
+    with SessionLocal() as db:
+        n = db.query(FeedbackNote).one()
+        assert (n.listing_id, n.liked, n.disliked) == (lid, "backlight barato", "longe")
 
     at.button(key=f"up{lid}").click().run()
     with SessionLocal() as db:

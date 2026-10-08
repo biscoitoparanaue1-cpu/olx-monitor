@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Feedback, FilterRule, Listing
+from app.models import Feedback, FeedbackNote, FilterRule, Listing
 from app.nlp.categorizer import defect_types
 from app.scoring.model import learn_from_feedback
 from app.scraper.service import utcnow
@@ -62,6 +62,24 @@ def set_feedback(db: Session, listing: Listing, value: int) -> Feedback:
     db.commit()
     learn_from_feedback(db)
     return fb
+
+
+def save_note(db: Session, listing: Listing, liked: str, disliked: str) -> FeedbackNote | None:
+    """Grava o que você gostou / não gostou no anúncio e reaprende. Tudo vazio apaga."""
+    liked, disliked = (liked or "").strip() or None, (disliked or "").strip() or None
+    note = db.scalar(select(FeedbackNote).where(FeedbackNote.listing_id == listing.id))
+    if not liked and not disliked:
+        if note:
+            db.delete(note)
+        note = None
+    elif note:
+        note.liked, note.disliked, note.updated_at = liked, disliked, utcnow()
+    else:
+        note = FeedbackNote(listing_id=listing.id, liked=liked, disliked=disliked, updated_at=utcnow())
+        db.add(note)
+    db.commit()
+    learn_from_feedback(db)
+    return note
 
 
 def clear_feedback(db: Session, listing_id: int) -> None:

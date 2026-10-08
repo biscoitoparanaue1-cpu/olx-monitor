@@ -3,7 +3,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     JSON, Boolean, CheckConstraint, DateTime, Float, ForeignKey, Index, Integer,
-    Numeric, String, Text, UniqueConstraint, func,
+    Numeric, String, Text, UniqueConstraint, and_, func, select,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -111,10 +111,14 @@ class Listing(Base):
         cascade="all, delete-orphan", lazy="selectin")
     feedback: Mapped["Feedback | None"] = relationship(
         cascade="all, delete-orphan", lazy="selectin")
+    note: Mapped["FeedbackNote | None"] = relationship(
+        cascade="all, delete-orphan", lazy="selectin")
 
     @property
     def latest_evaluation(self) -> "PriceEvaluation | None":
-        return self.evaluations[-1] if self.evaluations else None
+        if "evaluations" in self.__dict__:  # histórico já carregado (ex.: avaliação recém-feita)
+            return self.evaluations[-1] if self.evaluations else None
+        return self.last_evaluation
 
 
 class PriceHistory(Base):
@@ -197,6 +201,18 @@ class Feedback(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
+class FeedbackNote(Base):
+    """O que você escreveu que gostou / não gostou num anúncio (alimenta o aprendizado)."""
+    __tablename__ = "feedback_notes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    listing_id: Mapped[int] = mapped_column(
+        ForeignKey("listings.id", ondelete="CASCADE"), unique=True)
+    liked: Mapped[str | None] = mapped_column(Text)
+    disliked: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class ModelVersion(Base):
     __tablename__ = "model_versions"
 
@@ -215,3 +231,13 @@ class FeatureWeight(Base):
         ForeignKey("model_versions.version"), primary_key=True)
     feature: Mapped[str] = mapped_column(String(120), primary_key=True)
     weight: Mapped[float] = mapped_column(Float)
+
+
+# Só a avaliação mais recente de cada anúncio, carregada numa consulta para a
+# lista toda (antes era uma consulta por anúncio: lento com o banco na nuvem).
+_latest_eval_ids = (select(func.max(PriceEvaluation.id))
+                    .group_by(PriceEvaluation.listing_id).scalar_subquery())
+Listing.last_evaluation = relationship(
+    PriceEvaluation, uselist=False, viewonly=True, lazy="selectin",
+    primaryjoin=and_(PriceEvaluation.listing_id == Listing.id,
+                     PriceEvaluation.id.in_(_latest_eval_ids)))

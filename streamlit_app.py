@@ -26,8 +26,8 @@ from app.models import (  # noqa: E402
     SearchTerm,
 )
 from app.pipeline import reprocess_all  # noqa: E402
-from app.scoring.model import DEFAULT_WEIGHTS, MIN_FEEDBACK, learn_from_feedback, prior_weights  # noqa: E402
-from app.services import TZ, day_start_utc, set_feedback, clear_feedback, top_listings  # noqa: E402
+from app.scoring.model import DEFAULT_WEIGHTS, MIN_FEEDBACK, learn_from_feedback, note_word_weights, prior_weights  # noqa: E402
+from app.services import TZ, day_start_utc, save_note, set_feedback, clear_feedback, top_listings  # noqa: E402
 
 st.set_page_config(page_title="OLX Monitor", page_icon="📺", layout="wide")
 
@@ -164,6 +164,18 @@ def render_card(db, l: Listing, names: dict[int, str]) -> None:
                          type="primary" if current == -1 else "secondary"):
                 clear_feedback(db, l.id) if current == -1 else set_feedback(db, l, -1)
                 st.rerun()
+            note = l.note
+            with st.expander("✍️ Comentar o que gostei / não gostei" + (" (salvo)" if note else "")):
+                with st.form(f"note{l.id}", border=False):
+                    liked = st.text_area("O que gostei", value=(note.liked or "") if note else "",
+                                         key=f"liked{l.id}", height=68,
+                                         placeholder="ex.: backlight, preço baixo, perto de SP")
+                    disliked = st.text_area("O que não gostei", value=(note.disliked or "") if note else "",
+                                            key=f"disliked{l.id}", height=68,
+                                            placeholder="ex.: tela quebrada, só retirada")
+                    if st.form_submit_button("Salvar comentário"):
+                        save_note(db, l, liked, disliked)
+                        st.rerun()
 
 
 # ------------------------------------------------------------------- abas
@@ -326,6 +338,11 @@ def tab_learning(db) -> None:
         with st.spinner("Recalculando estado, preço e score..."):
             n = reprocess_all(db)
         st.success(f"{n} anúncios atualizados")
+    notes = note_word_weights(db)
+    if notes:
+        st.markdown("**Palavras dos seus comentários** (valem na hora, antes mesmo dos cliques)")
+        st.caption(" · ".join(f"{'▲' if v > 0 else '▼'} {k.split(':', 1)[1]}"
+                              for k, v in sorted(notes.items(), key=lambda kv: -abs(kv[1]))[:30]))
     with st.expander("Pesos iniciais"):
         st.json(DEFAULT_WEIGHTS)
 
