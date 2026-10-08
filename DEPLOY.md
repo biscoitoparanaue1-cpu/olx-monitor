@@ -36,24 +36,24 @@ Os três só pedem login (GitHub/Google), nenhum pede cartão.
   (de onde vem a descrição) foi bloqueada. Por isso o GitHub tenta 3 vezes por dia
   (07h, 10h e 13h) e cada tentativa completa só o que faltou.
 
-## Rodar o scraper na sua máquina (recomendado para ter as descrições)
+## Rodar o scraper no seu computador (Windows)
 Seu computador usa IP residencial, que a OLX quase não bloqueia. O painel continua no Streamlit
 e lê o mesmo Neon.
-1. Instale o Python 3.12 (python.org, marque *Add to PATH*) e, na pasta do projeto:
-   ```bat
-   python -m venv .venv
-   .venv\Scripts\pip install -r requirements.txt playwright playwright-stealth
-   .venv\Scripts\python -m playwright install chromium
-   ```
-2. Copie `.env.example` para `.env` e cole a connection string do Neon em `DATABASE_URL`.
-3. Teste: dê dois cliques em `scripts\rodar_scraper.bat` e veja o `scraper.log`.
-4. Agende: *Agendador de Tarefas → Criar Tarefa Básica → Diariamente, 07:00 →
-   Iniciar um programa → `scripts\rodar_scraper.bat`*. Marque "Executar o mais cedo possível
-   se um início agendado for perdido" para rodar quando o PC ligar.
-   No Mac/Linux use `scripts/rodar_scraper.sh` no `cron`.
+1. Instale o Python 3.12 em https://www.python.org/downloads/ marcando **Add python.exe to PATH**.
+2. Baixe o código: no GitHub, *Code → Download ZIP*, e extraia numa pasta fixa
+   (ex.: `C:\olx-monitor`). Não rode de dentro do ZIP.
+3. Dê dois cliques em `scripts\instalar_windows.bat`. Ele:
+   - cria o ambiente e instala as bibliotecas e o navegador (Chromium);
+   - abre o `.env` no Bloco de Notas para você colar a connection string do Neon;
+   - agenda a tarefa **OLX Monitor** para todo dia às 07:00 (se o PC estiver desligado,
+     roda assim que ligar);
+   - pergunta se quer rodar um teste na hora.
+4. O resultado de cada execução fica em `scraper.log`, e no painel, aba **Execuções**.
 
-Pode deixar o GitHub Actions ligado junto: as duas rotas gravam no mesmo banco e cada uma pula
-o que a outra já fez no dia.
+Mac/Linux: `scripts/rodar_scraper.sh` no `cron` (veja o comentário no arquivo) e `.env` igual.
+
+O GitHub Actions pode continuar ligado como reserva: as duas rotas gravam no mesmo banco e cada
+uma pula o que a outra já concluiu no dia.
 
 ## Proxy residencial (opcional, pago)
 Para rodar 100% na nuvem sem bloqueio, contrate um proxy residencial e crie o secret

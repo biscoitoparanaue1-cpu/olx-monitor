@@ -31,7 +31,8 @@ Sem `DATABASE_URL`, tudo usa o SQLite `olx_monitor.db`. Para usar o Neon:
 | `app/api/` + `app/main.py` | API REST (FastAPI): anúncios, feedback, regras, termos, ingestão, estatísticas |
 | `app/models.py` | Tabelas (fonte da verdade do [schema.sql](schema.sql)) |
 | `.github/workflows/scraper.yml` | Agendamento no GitHub (07h, 10h e 13h; pula o que já deu certo) |
-| `scripts/rodar_scraper.bat` / `.sh` | Rodar o scraper na sua máquina pelo Agendador de Tarefas / cron |
+| `scripts/instalar_windows.bat` | Instala tudo no Windows e agenda o scraper às 07:00 |
+| `scripts/rodar_scraper.bat` / `.sh` | O que o Agendador de Tarefas / cron executa |
 
 ## Rotas da API
 | Método | Rota | Uso |
