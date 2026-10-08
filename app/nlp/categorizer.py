@@ -22,37 +22,63 @@ from app.scraper.attributes import PROP_CONDITION
 # Do mais grave para o menos grave: quando várias pistas aparecem, vale a mais grave
 SEVERITY = ["para_pecas", "defeito", "usado_com_avaria", "usado_bom", "novo"]
 
-BUILTIN_SIGNALS: dict[str, list[str]] = {
-    "para_pecas": [
+# Tipos de defeito: (rótulo, estado que indicam, padrões no texto normalizado).
+# Definem o estado do item, viram filtro no painel e entram no score, para o modelo
+# aprender quais tipos você prefere (ex.: backlight costuma ser conserto barato;
+# tela quebrada, caro).
+DEFECT_TYPES: dict[str, tuple[str, str, list[str]]] = {
+    "pecas": ("Para peças", "para_pecas", [
         r"\b(para|pra|p/)\s*(retirada\s+de\s+)?pecas\b", r"\bsucata\b", r"\bretirar\s+pecas\b",
         r"\bvendo\s+(as\s+)?pecas\b",
-    ],
-    "defeito": [
-        r"\bdefeit\w*", r"\bnao\s+(liga|funciona|da\s+imagem|acende)\b", r"\bdeslig\w*\s+sozinh\w*",
-        r"\bdeslig\w*\s+(apos|depois\s+de|a\s+cada|com)\s+\d+\s*(min|minutos|h|horas)\b",
-        r"\btela\s+(trincad\w*|quebrad\w*|rachad\w*|danificad\w*|estourad\w*)", r"\bdanificad\w*",
-        r"\b(trincad\w*|quebrad\w*)\b", r"\blistras?\b", r"\bmanchas?\s+(na|em)\s+tela\b",
-        r"\bsem\s+(imagem|som|video)\b", r"\bqueimad\w*", r"\breinicia\w*\b", r"\bfica\s+reiniciando\b",
-        r"\btravad\w*", r"\bbacklight\b", r"\bled\s+queimad\w*", r"\bimagem\s+(escura|piscando)\b",
-        r"\bpisca\w*\b", r"\bliga\s+e\s+deslig\w*", r"\bburn\s*-?in\b", r"\btela\s+(preta|escura)\b",
-    ],
-    "usado_com_avaria": [
+    ]),
+    "tela": ("Tela quebrada", "defeito", [
+        r"\b(tela|display|painel|vidro)\s+(\w+\s+){0,2}?(trincad|quebrad|rachad|danificad|estourad|partid)\w*",
+        r"\bquebr\w*\s+(a\s+|o\s+)?(tela|display|painel)\b", r"\b(trincad|rachad|estourad)\w*", r"\btrincas?\b",
+    ]),
+    "imagem": ("Sem imagem / backlight", "defeito", [
+        r"\bsem\s+(imagem|video)\b", r"\bnao\s+(da|aparece|tem|mostra)\s+imagem\b", r"\bback\s*light\b",
+        r"\bleds?\s+(queimad\w*|da\s+tela)", r"\bbarras?\s+de\s+leds?\b", r"\bimagem\s+(escura|apagada)\b",
+        r"\btela\s+(preta|escura|apagada)\b", r"\b(so|apenas)\s+(o\s+)?(som|audio)\b",
+    ]),
+    "liga_desliga": ("Liga e desliga / reinicia", "defeito", [
+        r"\bdeslig\w*\s+sozinh\w*", r"\bliga\s+e\s+deslig\w*", r"\breinicia\w*", r"\breiniciando\b",
+        r"\bdeslig\w*\s+(apos|depois\s+de|a\s+cada|com)\s+(uns\s+|umas\s+|cerca\s+de\s+)?\d+\s*"
+        r"(min|minutos|h|horas|seg\w*)\b",
+    ]),
+    "nao_liga": ("Não liga", "defeito", [r"\bnao\s+(liga|acende|esta\s+ligando)\b"]),
+    "listras": ("Listras / manchas", "defeito", [
+        r"\blistras?\b", r"\b(faixas?|linhas?)\s+(na\s+tela|na\s+imagem|verticais|horizontais|coloridas)\b",
+        r"\bmanchas?\s+(na|em)\s+(tela|imagem)\b", r"\bburn\s*-?\s*in\b",
+        r"\b(imagem|tela)\s+(piscando|tremendo)\b", r"\bretencao\s+de\s+imagem\b",
+    ]),
+    "placa": ("Placa / fonte", "defeito", [
+        r"\bplaca\s+(principal|mae|da\s+fonte|fonte|t-?con|logica|queimad\w*|com\s+defeito|ruim)\b",
+        r"\bfonte\s+(queimad\w*|com\s+defeito|ruim)", r"\bt-?con\b", r"\bem\s+curto\b",
+    ]),
+    "som": ("Sem som", "defeito", [r"\bsem\s+(som|audio)\b", r"\bsom\s+(nao\s+funciona|chiando|falhando)\b"]),
+    # Só aparece quando o texto fala em defeito sem dizer qual
+    "outro": ("Defeito não especificado", "defeito", [
+        r"\bdefeit\w*", r"\bdanificad\w*", r"\bqueimad\w*", r"\btravad\w*", r"\bquebrad\w*",
+        r"\bpisca\w*", r"\bnao\s+funciona\b",
+    ]),
+    "estetico": ("Avarias leves (riscos, pixels)", "usado_com_avaria", [
         r"\bris(co|cos|cada|cado)\b", r"\barranh\w*", r"\bpixels?\s+(morto|queimado)s?\b",
         r"\bsem\s+(controle|pe|pes|base|suporte)\b", r"\bdetalhes?\s+(na|no)\b", r"\bamassad\w*",
         r"\bmarcas?\s+de\s+uso\b",
-    ],
-    "novo": [r"\blacrad\w*", r"\bnunca\s+usad\w*", r"\bnov[ao]\s+na\s+caixa\b", r"\bzero\s+km\b"],
+    ]),
 }
+NEW_SIGNALS = [r"\blacrad\w*", r"\bnunca\s+usad\w*", r"\bnov[ao]\s+na\s+caixa\b", r"\bzero\s+km\b"]
 
 # Remove trechos negados antes de procurar sinais ("sem nenhum defeito", "nao tem riscos")
 _NEGATION = re.compile(
-    r"\b(sem|nenhum|nenhuma|zero|nao\s+tem|nao\s+possui|nao\s+apresenta|livre\s+de|isent[ao]\s+de)"
+    r"\b(sem|nenhum|nenhuma|zero|nem|nao\s+tem|nao\s+possui|nao\s+apresenta|livre\s+de|isent[ao]\s+de)"
     r"\s+(\w+\s+){0,2}?(defeitos?|riscos?|avarias?|trincas?|arranh\w*|marcas?|detalhes?|problemas?)\b"
 )
 _NEGATION_ADJ = re.compile(
     r"\bnao\s+(esta|estao|tem|possui|e)?\s*(\w+\s+)?(trincad|quebrad|riscad|arranhad|amassad|queimad)\w*"
 )
-_COMPILED = {cond: [re.compile(p) for p in pats] for cond, pats in BUILTIN_SIGNALS.items()}
+_DEFECT_RE = {k: [re.compile(p) for p in pats] for k, (_, _, pats) in DEFECT_TYPES.items()}
+_NEW_RE = [re.compile(p) for p in NEW_SIGNALS]
 
 
 def strip_accents(text: str | None) -> str:
@@ -96,17 +122,42 @@ def listing_properties(listing: Listing) -> dict[str, str]:
     return props if isinstance(props, dict) else {}
 
 
-def detect_condition(text_norm: str, declared: str | None = None) -> tuple[str, dict[str, list[str]]]:
+def text_defects(text_norm: str) -> dict[str, list[str]]:
+    """Tipos de defeito citados no texto (já sem os trechos negados) -> trechos encontrados."""
     clean = strip_negations(text_norm)
-    signals: dict[str, list[str]] = {}
-    for cond, regexes in _COMPILED.items():
-        hits = [m.group(0) for r in regexes for m in [r.search(clean)] if m]
+    found = {}
+    for key, regexes in _DEFECT_RE.items():
+        hits = [m.group(0) for r in regexes if (m := r.search(clean))]
         if hits:
-            signals[cond] = hits
+            found[key] = hits
+    if "outro" in found and any(DEFECT_TYPES[k][1] == "defeito" for k in found if k != "outro"):
+        del found["outro"]  # "defeito na tela trincada" já é "Tela quebrada"
+    return found
+
+
+def detect_condition(text_norm: str, declared: str | None = None) -> tuple[str, dict[str, list[str]]]:
+    signals: dict[str, list[str]] = {}
+    for key, hits in text_defects(text_norm).items():
+        signals.setdefault(DEFECT_TYPES[key][1], []).extend(hits)
+    clean = strip_negations(text_norm)
+    if new := [m.group(0) for r in _NEW_RE if (m := r.search(clean))]:
+        signals["novo"] = new
     for cond in SEVERITY:
         if cond in signals or cond == declared:
             return cond, signals
     return "usado_bom", signals
+
+
+def defect_types(listing: Listing) -> list[str]:
+    """Tipos de defeito do anúncio, na ordem de DEFECT_TYPES. Se o estado é "com defeito"
+    (ex.: pela ficha da OLX) mas o texto não diz qual, entra "outro"."""
+    found = text_defects(normalize(f"{listing.title}\n{listing.description or ''}"))
+    types = [k for k in DEFECT_TYPES if k in found]
+    if listing.condition == "defeito" and not any(DEFECT_TYPES[k][1] == "defeito" for k in types):
+        types.append("outro")
+    if listing.condition == "para_pecas" and "pecas" not in types:
+        types.append("pecas")
+    return types
 
 
 # ----------------------------------------------------------------- regras

@@ -7,7 +7,11 @@ score = sigmoid(Σ peso × característica), entre 0 e 1.
 - Com feedback: regressão logística treinada nos seus cliques, mas puxada
   na direção dos pesos iniciais (regularização L2 em torno do prior). Com
   poucos cliques o score muda pouco; quanto mais cliques, mais ele segue
-  o seu gosto, inclusive em palavras da descrição, tamanho, UF e vendedor.
+  o seu gosto, inclusive em tipo de defeito, palavras da descrição,
+  tamanho, UF e vendedor.
+
+Retreina a cada clique, recalculando as características com os dados atuais
+do anúncio (cliques antigos aproveitam correções do leitor da OLX).
 """
 from __future__ import annotations
 
@@ -35,7 +39,7 @@ DEFAULT_WEIGHTS: dict[str, float] = {
 }
 MIN_FEEDBACK = 5        # cliques mínimos (com 👍 e 👎) para treinar
 KEEP_VERSIONS = 10      # versões antigas guardadas (para comparar/voltar)
-PRIOR_STRENGTH = 2.0    # quanto o modelo resiste a se afastar dos pesos iniciais
+PRIOR_STRENGTH = 0.5    # quanto o modelo resiste a se afastar dos pesos iniciais (simulação: 0.5 aprende mais rápido que 2.0)
 EPOCHS, LEARNING_RATE = 400, 0.5
 
 

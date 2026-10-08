@@ -3,6 +3,7 @@
 Local:   streamlit run streamlit_app.py
 Nuvem:   Streamlit Community Cloud, com DATABASE_URL (Neon) nos Secrets do app.
 """
+import html
 import os
 import re
 
@@ -19,6 +20,7 @@ except Exception:  # sem secrets.toml (rodando local com SQLite)
 from sqlalchemy import func, select  # noqa: E402
 
 from app.db import SessionLocal, init_db  # noqa: E402
+from app.nlp.categorizer import DEFECT_TYPES, defect_types  # noqa: E402
 from app.models import (  # noqa: E402
     FeatureWeight, Feedback, FilterRule, Listing, ModelVersion, ProductCategory, ScrapeRun,
     SearchTerm,
@@ -86,6 +88,8 @@ def humanize(feature: str, rule_names: dict[int, str]) -> str:
         return f"“{value}”"
     if kind == "tamanho":
         return f'{value}"'
+    if kind == "defeito":
+        return DEFECT_TYPES[value][0].lower() if value in DEFECT_TYPES else value
     if kind in ("uf", "linha"):
         return value
     return {"preco_vs_grupo": "preço vs. grupo", "vendedor_profissional": "vendedor profissional",
@@ -97,12 +101,21 @@ def rule_names(db) -> dict[int, str]:
 
 
 # ----------------------------------------------------------------- cartões
+def photo_html(l: Listing) -> str:
+    """A OLX recusa (HTTP 403) fotos pedidas a partir de outro site, pelo cabeçalho Referer;
+    sem Referer elas abrem. Por isso <img referrerpolicy="no-referrer"> em vez de st.image."""
+    return (f'<a href="{html.escape(l.url)}" target="_blank">'
+            f'<img src="{html.escape(l.image_url)}" referrerpolicy="no-referrer" loading="lazy" '
+            f'alt="foto do anúncio" style="width:100%;aspect-ratio:4/3;object-fit:cover;'
+            f'border-radius:8px"></a>')
+
+
 def render_card(db, l: Listing, names: dict[int, str]) -> None:
     with st.container(border=True):
         img, body = st.columns([1, 3], gap="medium")
         with img:
             if l.image_url:
-                st.image(l.image_url, width="stretch")
+                st.markdown(photo_html(l), unsafe_allow_html=True)
             else:
                 st.markdown("### 📺")
         with body:
@@ -114,6 +127,8 @@ def render_card(db, l: Listing, names: dict[int, str]) -> None:
                 badges.append(f":{color}-badge[{txt}]")
             if l.condition:
                 badges.append(f":orange-badge[{CONDITIONS.get(l.condition, l.condition)}]")
+            for t in defect_types(l):
+                badges.append(f":red-badge[🔧 {DEFECT_TYPES[t][0]}]")
             if l.category:
                 badges.append(f":gray-badge[{l.category.name}]")
             st.markdown(f"### {brl(l.current_price)} " + " ".join(badges))
@@ -152,18 +167,20 @@ def render_card(db, l: Listing, names: dict[int, str]) -> None:
 
 
 # ------------------------------------------------------------------- abas
-def tab_top(db, days: int, limit: int, show_disliked: bool) -> None:
-    items = top_listings(db, days=days, limit=limit, hide_disliked=not show_disliked)
+def tab_top(db, days: int, limit: int, show_disliked: bool, types: set[str]) -> None:
+    items = top_listings(db, days=days, limit=limit, hide_disliked=not show_disliked,
+                         defect_filter=types or None)
     if not items:
-        st.info("Nenhum anúncio novo nesse período. Aumente o período na barra lateral "
-                "ou confira a aba **Execuções** para ver se o scraper rodou.")
+        st.info("Nenhum anúncio nesse período" + (" com esse tipo de defeito" if types else "")
+                + ". Aumente o período na barra lateral ou confira a aba **Execuções** "
+                "para ver se o scraper rodou.")
         return
     names = rule_names(db)
     for l in items:
         render_card(db, l, names)
 
 
-def tab_all(db) -> None:
+def tab_all(db, types: set[str]) -> None:
     c1, c2, c3, c4 = st.columns(4)
     q = c1.text_input("Buscar no título/descrição")
     sizes = sorted({s for s in db.scalars(select(Listing.screen_size).distinct()) if s})
@@ -183,6 +200,9 @@ def tab_all(db) -> None:
     want = {"👍": 1, "👎": -1, "Sem feedback": 0}.get(fb)
     if want is not None:
         rows = [l for l in rows if (l.feedback.value if l.feedback else 0) == want]
+    kinds = {l.id: defect_types(l) for l in rows}
+    if types:
+        rows = [l for l in rows if types & set(kinds[l.id])]
 
     st.caption(f"{len(rows)} anúncios")
     st.dataframe(
@@ -190,6 +210,7 @@ def tab_all(db) -> None:
             "Título": l.title, "Preço": float(l.current_price) if l.current_price else None,
             "Grupo": l.category.name if l.category else None,
             "Estado": CONDITIONS.get(l.condition, l.condition),
+            "Defeitos": ", ".join(DEFECT_TYPES[t][0] for t in kinds[l.id]),
             "Avaliação": PRICE_LABELS.get(getattr(l.latest_evaluation, "price_label", ""), ("",))[0],
             "Local": l.location, "Visto em": local_dt(l.first_seen_at),
             "Ativo": l.is_active, "Link": l.url,
@@ -203,9 +224,10 @@ def tab_all(db) -> None:
 
 
 def tab_rules(db) -> None:
-    st.caption("Filtros aplicados ao título e à descrição. Ex.: *desliga a cada 40min*, "
-               "*tela trincada*. **include** = só mostra quem casar; **exclude** = esconde; "
-               "**tag** = só marca e pesa no score.")
+    st.caption("Os tipos de defeito mais comuns já são reconhecidos sozinhos (filtro **Tipo de "
+               "defeito** na barra lateral). Aqui você cria os seus, aplicados ao título e à "
+               "descrição. Ex.: *desliga a cada 40min*, *tela trincada*. **include** = só mostra "
+               "quem casar; **exclude** = esconde; **tag** = só marca e pesa no score.")
     with st.form("new_rule", clear_on_submit=True):
         c1, c2 = st.columns([1, 2])
         name = c1.text_input("Nome", placeholder="Desliga sozinha")
@@ -311,7 +333,8 @@ def tab_learning(db) -> None:
 def tab_runs(db) -> None:
     runs = db.scalars(select(ScrapeRun).order_by(ScrapeRun.id.desc()).limit(30)).all()
     if not runs:
-        st.info("O scraper ainda não rodou. Ele roda todo dia às 07:00 pelo GitHub Actions.")
+        st.info("O scraper ainda não rodou. Ele roda todo dia às 07:00 no seu computador "
+                "(e o GitHub Actions tenta como reserva).")
         return
     icon = {"ok": "✅", "blocked": "⛔", "error": "❌", "running": "⏳"}
     st.dataframe([{
@@ -333,6 +356,10 @@ def main() -> None:
             days = {"Hoje": 1, "3 dias": 3, "7 dias": 7, "30 dias": 30}[period]
             limit = st.slider("Quantos anúncios", 5, 100, 20, step=5)
             show_disliked = st.toggle("Mostrar os que marquei 👎", value=False)
+            types = set(st.multiselect(
+                "Tipo de defeito", list(DEFECT_TYPES), format_func=lambda k: DEFECT_TYPES[k][0],
+                placeholder="Todos", help="Mostra só anúncios com pelo menos um dos tipos escolhidos "
+                "(vale para Melhores do dia e Todos)."))
             st.divider()
             total = db.scalar(select(func.count(Listing.id)))
             today = db.scalar(select(func.count(Listing.id)).where(
@@ -353,9 +380,9 @@ def main() -> None:
         tabs = st.tabs(["🏆 Melhores do dia", "📋 Todos", "🔎 Regras de filtro",
                         "🗂️ Termos de busca", "🧠 Aprendizado", "⚙️ Execuções"])
         with tabs[0]:
-            tab_top(db, days, limit, show_disliked)
+            tab_top(db, days, limit, show_disliked, types)
         with tabs[1]:
-            tab_all(db)
+            tab_all(db, types)
         with tabs[2]:
             tab_rules(db)
         with tabs[3]:

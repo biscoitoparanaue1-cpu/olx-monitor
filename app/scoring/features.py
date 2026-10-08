@@ -8,7 +8,7 @@ import math
 import re
 
 from app.models import Listing
-from app.nlp.categorizer import normalize, strip_negations
+from app.nlp.categorizer import defect_types, normalize, strip_negations
 from app.scraper.service import utcnow
 
 STOPWORDS = set("""
@@ -20,10 +20,13 @@ TOKEN = re.compile(r"[a-z]{4,}")
 
 
 def text_tokens(l: Listing) -> set[str]:
-    """Palavras e pares de palavras relevantes do título e da descrição."""
-    words = [w for w in TOKEN.findall(strip_negations(normalize(f"{l.title} {l.description or ''}")))
-             if w not in STOPWORDS]
-    return set(words) | {f"{a} {b}" for a, b in zip(words, words[1:])}
+    """Palavras relevantes do título e da descrição.
+
+    Sem pares de palavras ("tela trincada"): com poucos cliques eles deixavam o
+    aprendizado instável, e os tipos de defeito já cobrem esses casos.
+    """
+    return {w for w in TOKEN.findall(strip_negations(normalize(f"{l.title} {l.description or ''}")))
+            if w not in STOPWORDS}
 
 
 def extract_features(l: Listing) -> dict[str, float]:
@@ -40,6 +43,8 @@ def extract_features(l: Listing) -> dict[str, float]:
         f["preco_log"] = math.log1p(price) / math.log1p(10_000)
     if l.condition:
         f[f"estado:{l.condition}"] = 1.0
+    for t in defect_types(l):  # o modelo aprende quais tipos de defeito você prefere
+        f[f"defeito:{t}"] = 1.0
     for m in l.rule_matches:
         f[f"regra:{m.rule_id}"] = 1.0
     if l.screen_size:

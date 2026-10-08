@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Feedback, FilterRule, Listing
+from app.nlp.categorizer import defect_types
 from app.scoring.model import learn_from_feedback
 from app.scraper.service import utcnow
 
@@ -31,16 +32,18 @@ def rank_key(l: Listing):
     return (-(l.score.score if l.score else float("-inf")), z)
 
 
-def top_listings(db: Session, days: int = 1, limit: int = 20,
-                 hide_disliked: bool = True) -> list[Listing]:
-    """Melhores anúncios vistos pela primeira vez nos últimos `days` dias (1 = só hoje)."""
+def top_listings(db: Session, days: int = 1, limit: int = 20, hide_disliked: bool = True,
+                 defect_filter: set[str] | None = None) -> list[Listing]:
+    """Melhores anúncios vistos pela primeira vez nos últimos `days` dias (1 = só hoje).
+    defect_filter: só os que têm pelo menos um desses tipos de defeito (chaves de DEFECT_TYPES)."""
     listings = db.scalars(select(Listing).where(
         Listing.first_seen_at >= day_start_utc(days - 1), Listing.is_active.is_(True))).all()
     rules = db.scalars(select(FilterRule).where(FilterRule.is_active.is_(True))).all()
     include = {r.id for r in rules if r.action == "include"}
     exclude = {r.id for r in rules if r.action == "exclude"}
     kept = [l for l in listings if passes_rules(l, include, exclude) and
-            not (hide_disliked and l.feedback and l.feedback.value == -1)]
+            not (hide_disliked and l.feedback and l.feedback.value == -1) and
+            (not defect_filter or defect_filter & set(defect_types(l)))]
     kept.sort(key=rank_key)
     return kept[:limit]
 
