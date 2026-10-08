@@ -8,3 +8,5 @@ __pycache__/
 debug/
 .env
 scraper.log
+diagnostico/
+diagnostico.txt
