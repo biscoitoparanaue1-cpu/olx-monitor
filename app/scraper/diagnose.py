@@ -68,12 +68,25 @@ def main(query: str = "TV LG OLED") -> None:
                 out(json.dumps(ads[1] if len(ads) > 1 else {}, ensure_ascii=False, default=str)[:2500])
             out("--- árvore do pageProps:")
             shape(pp, max_depth=2)
+        # Estruturas alternativas ao __NEXT_DATA__ (Next.js app router, JSON-LD, DOM)
+        import re as _re
+        for m in _re.finditer(r'<script[^>]+application/ld\+json[^>]*>(.*?)</script>', html, _re.S):
+            out("--- JSON-LD (início):", m.group(1)[:3000])
+        pushes = _re.findall(r'self\.__next_f\.push\(\[1,\s*"(.*?)"\]\)', html, _re.S)
+        out("__next_f.push:", len(pushes), "tamanhos:", [len(p) for p in pushes][:30])
+        for key in ("priceValue", "listId", '\\"subject', "subject"):
+            i = html.find(key)
+            out(f"--- 1ª ocorrência de {key!r} em {i}:", html[max(0, i - 600):i + 1400] if i >= 0 else "-")
+        first_link = _re.search(r'<a[^>]+href="https://[a-z]{2}\.olx\.com\.br/[^"]+-\d{8,}"', html)
+        if first_link:
+            j = first_link.start()
+            out("--- HTML em volta do 1º link de anúncio:", html[max(0, j - 1500):j + 3500])
         parsed = parse_search_page(html)
         out(f"parse_search_page: {len(parsed)} anúncios")
         for a in parsed[:5]:
-            out(f"  {a.olx_id} | {a.title[:60]!r} | preço={a.price} | img={bool(a.image_url)} | {a.url[:90]}")
+            out(f"  {a.olx_id} | {a.title[:120]!r} | preço={a.price} | img={bool(a.image_url)} | {a.url[:90]}")
 
-        if parsed:
+        if parsed and "--com-detalhe" in sys.argv:
             detail_url = parsed[0].url
             dhtml = fetcher.get(detail_url)
             (OUT / "anuncio.html").write_text(dhtml, encoding="utf-8")
