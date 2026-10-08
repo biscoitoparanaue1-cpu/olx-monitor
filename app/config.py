@@ -37,7 +37,7 @@ MAX_RETRIES = 3
 
 # Visitar a página dos anúncios ainda sem descrição (novos ou que falharam antes)
 FETCH_DETAILS_FOR_NEW = True
-MAX_DETAILS_PER_RUN = int(os.getenv("MAX_DETAILS_PER_RUN", "80"))
+MAX_DETAILS_PER_RUN = int(os.getenv("MAX_DETAILS_PER_RUN", "150"))
 
 # Proxy opcional (ex.: residencial), formato http://usuario:senha@host:porta
 OLX_PROXY = os.getenv("OLX_PROXY") or None

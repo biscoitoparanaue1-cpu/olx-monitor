@@ -6,7 +6,7 @@ from app.api.deps import get_db, require_api_key
 from app.models import Listing, ScrapeRun, SearchTerm
 from app.scraper.parser import RawAd
 from app.scraper.service import upsert_listing, utcnow
-from app.pipeline import needs_processing, process
+from app.pipeline import process
 from app.services import rank_key, top_listings
 from app.schemas import (
     IngestIn, IngestOut, ListingDetail, ListingOut, ListingPage, PriceEvalOut, PricePoint,
@@ -122,5 +122,5 @@ def ingest(payload: IngestIn, db: Session = Depends(get_db)):
         touched.append(listing)
     run.status, run.ads_found, run.ads_new, run.finished_at = "ok", len(payload.ads), new, utcnow()
     db.commit()
-    process(db, [l for l in touched if needs_processing(l)])
+    process(db, touched)
     return IngestOut(received=len(payload.ads), new=new, scrape_run_id=run.id)

@@ -49,6 +49,11 @@ e lê o mesmo Neon.
      roda assim que ligar);
    - pergunta se quer rodar um teste na hora.
 4. O resultado de cada execução fica em `scraper.log`, e no painel, aba **Execuções**.
+5. Para rodar fora do horário (mesmo se já rodou hoje): dois cliques em `scripts\rodar_agora.bat`.
+
+**Atualizar o código:** baixe o ZIP de novo e copie o conteúdo por cima da pasta
+(o Windows pergunta se quer substituir: *Substituir*). O `.env` e o `.venv` não estão no ZIP
+e continuam como estão. Depois, `scripts\rodar_agora.bat` para aplicar as correções na hora.
 
 Mac/Linux: `scripts/rodar_scraper.sh` no `cron` (veja o comentário no arquivo) e `.env` igual.
 

@@ -89,6 +89,9 @@ def test_price_labels_and_fallback(db):
     # Estado diferente não mistura
     new = mk(db, 201, "nova", 1500, cat=c1, condition="novo")
     assert evaluate(db, new).price_label == "sem_base"
+    # TV LED (sem linha OLED) não é comparada com as OLED
+    led = mk(db, 202, "TV LG 55UN7100", 1200, line=None, condition="defeito")
+    assert evaluate(db, led).price_label == "sem_base"
 
 
 # ---------------------------------------------------------------- score

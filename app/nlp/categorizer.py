@@ -2,7 +2,9 @@
 
 Sem modelo pesado: texto normalizado (minúsculas, sem acento), regex com
 tratamento de negação ("sem defeito" não conta como defeito) e regras
-configuráveis (regex, palavras-chave ou aproximado).
+configuráveis (regex, palavras-chave ou aproximado). A condição marcada pelo
+vendedor na ficha da OLX ("Com defeito ou avarias", "Novo"...) também conta;
+vale a mais grave entre ela e o que o texto revela.
 """
 from __future__ import annotations
 
@@ -15,6 +17,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.models import FilterRule, Listing, ListingRuleMatch
+from app.scraper.attributes import PROP_CONDITION
 
 # Do mais grave para o menos grave: quando várias pistas aparecem, vale a mais grave
 SEVERITY = ["para_pecas", "defeito", "usado_com_avaria", "usado_bom", "novo"]
@@ -27,7 +30,7 @@ BUILTIN_SIGNALS: dict[str, list[str]] = {
     "defeito": [
         r"\bdefeit\w*", r"\bnao\s+(liga|funciona|da\s+imagem|acende)\b", r"\bdeslig\w*\s+sozinh\w*",
         r"\bdeslig\w*\s+(apos|depois\s+de|a\s+cada|com)\s+\d+\s*(min|minutos|h|horas)\b",
-        r"\btela\s+(trincad\w*|quebrad\w*|rachad\w*|danificad\w*|estourad\w*)",
+        r"\btela\s+(trincad\w*|quebrad\w*|rachad\w*|danificad\w*|estourad\w*)", r"\bdanificad\w*",
         r"\b(trincad\w*|quebrad\w*)\b", r"\blistras?\b", r"\bmanchas?\s+(na|em)\s+tela\b",
         r"\bsem\s+(imagem|som|video)\b", r"\bqueimad\w*", r"\breinicia\w*\b", r"\bfica\s+reiniciando\b",
         r"\btravad\w*", r"\bbacklight\b", r"\bled\s+queimad\w*", r"\bimagem\s+(escura|piscando)\b",
@@ -74,7 +77,26 @@ class CategorizeResult:
     rule_matches: list[tuple[FilterRule, str]] = field(default_factory=list)
 
 
-def detect_condition(text_norm: str) -> tuple[str, dict[str, list[str]]]:
+def declared_condition(value: str | None) -> str | None:
+    """Condição da ficha da OLX: "Novo", "Usado - Excelente", "Usado - Bom", "Com defeito ou avarias"."""
+    v = normalize(value)
+    if not v:
+        return None
+    if "peca" in v:
+        return "para_pecas"
+    if any(w in v for w in ("defeito", "avaria", "reparo", "conserto")):
+        return "defeito"
+    if v.startswith("novo"):
+        return "novo"
+    return "usado_bom" if "usado" in v else None
+
+
+def listing_properties(listing: Listing) -> dict[str, str]:
+    props = (listing.raw_json or {}).get("properties")
+    return props if isinstance(props, dict) else {}
+
+
+def detect_condition(text_norm: str, declared: str | None = None) -> tuple[str, dict[str, list[str]]]:
     clean = strip_negations(text_norm)
     signals: dict[str, list[str]] = {}
     for cond, regexes in _COMPILED.items():
@@ -82,7 +104,7 @@ def detect_condition(text_norm: str) -> tuple[str, dict[str, list[str]]]:
         if hits:
             signals[cond] = hits
     for cond in SEVERITY:
-        if cond in signals:
+        if cond in signals or cond == declared:
             return cond, signals
     return "usado_bom", signals
 
@@ -121,7 +143,8 @@ def match_rule(rule: FilterRule, text_norm: str) -> str | None:
 
 def categorize(listing: Listing, rules: list[FilterRule]) -> CategorizeResult:
     text = normalize(f"{listing.title}\n{listing.description or ''}")
-    condition, signals = detect_condition(text)
+    declared = declared_condition(listing_properties(listing).get(PROP_CONDITION))
+    condition, signals = detect_condition(text, declared)
     result = CategorizeResult(condition=condition, signals=signals)
     for rule in rules:
         if (hit := match_rule(rule, text)) is not None:

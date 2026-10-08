@@ -14,13 +14,6 @@ from app.scoring.model import rescore
 log = logging.getLogger(__name__)
 
 
-def needs_processing(l: Listing) -> bool:
-    ev = l.latest_evaluation
-    if ev is None or l.score is None or l.condition is None:
-        return True
-    return l.current_price is not None and float(ev.price) != float(l.current_price)
-
-
 def process(db: Session, listings: list[Listing]) -> int:
     if not listings:
         return 0

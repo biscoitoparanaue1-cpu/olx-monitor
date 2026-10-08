@@ -2,6 +2,8 @@
 
 Grupo = mesmo estado (defeito, para peças...) e, do mais específico ao mais
 amplo: modelo + tamanho ("LG OLED C1 55") -> marca + tamanho -> só tamanho.
+OLED só é comparada com OLED (e LED com LED): misturar faria uma TV LED
+comum parecer "ótimo negócio".
 Usa o primeiro preço pedido de cada anúncio dos últimos 90 dias, mediana e
 desvio robusto (MAD), que não se deixam levar por preços absurdos.
 """
@@ -67,10 +69,12 @@ def _candidate_levels(l: Listing) -> list[tuple[str, list]]:
     levels = []
     if l.category_id and l.model_line and l.model_line != "OLED":
         levels.append(("modelo+tamanho", [Listing.category_id == l.category_id]))
+    oled = bool(l.model_line and l.model_line.startswith("OLED"))
+    tech = Listing.model_line.like("OLED%") if oled else Listing.model_line.is_(None)
     if l.brand and l.screen_size:
-        levels.append(("marca+tamanho", [Listing.brand == l.brand, Listing.screen_size == l.screen_size]))
+        levels.append(("marca+tamanho", [tech, Listing.brand == l.brand, Listing.screen_size == l.screen_size]))
     if l.screen_size:
-        levels.append(("tamanho", [Listing.screen_size == l.screen_size]))
+        levels.append(("tamanho", [tech, Listing.screen_size == l.screen_size]))
     return levels
 
 

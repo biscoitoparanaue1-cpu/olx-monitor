@@ -60,7 +60,7 @@ olx-monitor/
 │   ├── api/                 # listings.py, feedback.py, rules.py, searches.py
 │   ├── scraper/
 │   │   ├── fetcher.py       # httpx com headers/UA/delay; fallback Playwright
-│   │   └── parser.py        # extrai do JSON embutido (__NEXT_DATA__) ou HTML
+│   │   └── parser.py        # extrai do JSON embutido (payload do Next.js, initial-data) ou HTML
 │   ├── nlp/categorizer.py   # normalização + aplicação das filter_rules
 │   ├── pricing/evaluator.py # estatística do grupo e rótulo
 │   ├── scoring/             # features.py, model.py, trainer.py
@@ -73,7 +73,7 @@ olx-monitor/
 ## 4. Decisões de cada módulo
 
 ### 4.1 Scraper
-- Tenta primeiro `httpx` com headers de navegador real; a página de busca da OLX costuma trazer os dados num JSON embutido (`__NEXT_DATA__`), mais estável que seletores CSS.
+- Tenta primeiro `httpx` com headers de navegador real; a página de busca da OLX traz os dados num JSON embutido (payload do Next.js em `self.__next_f.push`, com preço, fotos e a ficha: condição, tamanho, marca) e a do anúncio em `<script id="initial-data">`; ler o JSON é mais estável que seletores CSS.
 - Delay aleatório de 3–8 s entre páginas, limite de páginas por termo, retry com *backoff*.
 - Se receber 403/captcha, marca o `scrape_run` como `blocked` e repete com Playwright (headless, perfil persistente). Rotação de User-Agent e stealth entram nesta camada se precisar.
 - Descrição completa às vezes só existe na página do anúncio: visita o detalhe **apenas de anúncios novos**, para reduzir requisições.

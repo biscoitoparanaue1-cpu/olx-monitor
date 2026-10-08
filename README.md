@@ -33,6 +33,7 @@ Sem `DATABASE_URL`, tudo usa o SQLite `olx_monitor.db`. Para usar o Neon:
 | `.github/workflows/scraper.yml` | Agendamento no GitHub (07h, 10h e 13h; pula o que já deu certo) |
 | `scripts/instalar_windows.bat` | Instala tudo no Windows e agenda o scraper às 07:00 |
 | `scripts/rodar_scraper.bat` / `.sh` | O que o Agendador de Tarefas / cron executa |
+| `scripts/rodar_agora.bat` | Roda o scraper na hora, mesmo que já tenha rodado hoje |
 
 ## Rotas da API
 | Método | Rota | Uso |

@@ -10,11 +10,14 @@ from sqlalchemy.orm import Session
 
 from app import config
 from app.models import Listing, PriceHistory, ProductCategory, ScrapeRun, SearchTerm, Seller
-from app.scraper.attributes import TvAttributes, extract_attributes
+from app.scraper.attributes import TvAttributes, extract_attributes, normalize
 from app.scraper.fetcher import Fetcher
 from app.scraper.parser import BlockedError, RawAd, parse_ad_page, parse_search_page
 
 log = logging.getLogger(__name__)
+
+# Sobe quando a leitura da página do anúncio muda: os anúncios já salvos são relidos
+DETAIL_VERSION = 2
 
 
 def utcnow() -> datetime:
@@ -57,6 +60,37 @@ def _get_or_create_seller(db: Session, ad: RawAd) -> Seller | None:
     return seller
 
 
+def is_tv_ad(ad: RawAd) -> bool:
+    """A busca "TV LG OLED" também traz bases, controles e capas ("Peças e Acessórios para TV")."""
+    return "ACESSORIO" not in normalize(ad.raw.get("categoryName") or "")
+
+
+def _merge_raw(listing: Listing, ad: RawAd) -> None:
+    raw = dict(listing.raw_json or {})
+    raw.update(ad.raw)
+    if ad.properties:
+        raw["properties"] = {**(raw.get("properties") or {}), **ad.properties}
+    listing.raw_json = raw  # objeto novo: o SQLAlchemy só percebe a mudança assim
+
+
+def refresh_attributes(db: Session, listing: Listing) -> None:
+    """Recalcula marca/linha/tamanho e o grupo de preço com tudo o que se sabe do anúncio."""
+    props = (listing.raw_json or {}).get("properties") or {}
+    a = extract_attributes(listing.title, listing.description or "", props)
+    listing.brand, listing.model_line, listing.model_code, listing.screen_size = (
+        a.brand, a.model_line, a.model_code, a.screen_size)
+    listing.category = get_or_create_category(db, a.brand, a.model_line, a.screen_size)
+
+
+def _record_price(db: Session, listing: Listing, price: float | None, run_id: int | None) -> None:
+    if price is None:
+        return
+    if listing.current_price is None or float(listing.current_price) != price:
+        listing.current_price = price
+        db.add(PriceHistory(listing_id=listing.id, price=price, observed_at=utcnow(),
+                            scrape_run_id=run_id))
+
+
 def upsert_listing(db: Session, ad: RawAd, term: SearchTerm, run: ScrapeRun) -> tuple[Listing, bool]:
     """Cria ou atualiza o anúncio. Retorna (listing, é_novo)."""
     now = utcnow()
@@ -64,16 +98,11 @@ def upsert_listing(db: Session, ad: RawAd, term: SearchTerm, run: ScrapeRun) -> 
     is_new = listing is None
 
     if is_new:
-        attrs = extract_attributes(ad.title, ad.description or "")
-        cat = get_or_create_category(db, attrs.brand, attrs.model_line, attrs.screen_size)
         listing = Listing(
             olx_id=ad.olx_id, search_term_id=term.id, title=ad.title, url=ad.url,
-            description=ad.description, current_price=ad.price, location=ad.location,
-            state=ad.state, image_url=ad.image_url, posted_at=ad.posted_at,
-            brand=attrs.brand, model_line=attrs.model_line, model_code=attrs.model_code,
-            screen_size=attrs.screen_size, category=cat,
-            seller=_get_or_create_seller(db, ad), raw_json=ad.raw or None,
-            first_seen_at=now, last_seen_at=now, is_active=True,
+            description=ad.description, location=ad.location, state=ad.state,
+            image_url=ad.image_url, posted_at=ad.posted_at,
+            seller=_get_or_create_seller(db, ad), first_seen_at=now, last_seen_at=now, is_active=True,
         )
         db.add(listing)
         db.flush()
@@ -81,35 +110,51 @@ def upsert_listing(db: Session, ad: RawAd, term: SearchTerm, run: ScrapeRun) -> 
         listing.last_seen_at = now
         listing.is_active = True
         listing.title = ad.title or listing.title
+        listing.url = ad.url or listing.url
+        listing.image_url = ad.image_url or listing.image_url
+        listing.location = ad.location or listing.location
+        listing.state = ad.state or listing.state
+        listing.posted_at = listing.posted_at or ad.posted_at
         if ad.description and not listing.description:
             listing.description = ad.description
 
-    price_changed = ad.price is not None and (
-        is_new or listing.current_price is None or float(listing.current_price) != ad.price)
-    if price_changed:
-        listing.current_price = ad.price
-        db.add(PriceHistory(listing_id=listing.id, price=ad.price,
-                            observed_at=now, scrape_run_id=run.id))
+    _merge_raw(listing, ad)
+    refresh_attributes(db, listing)
+    _record_price(db, listing, ad.price, run.id)
     return listing, is_new
 
 
-def enrich_with_details(db: Session, fetcher: Fetcher, listing: Listing) -> None:
-    """Abre a página do anúncio para pegar descrição completa e vendedor."""
+def needs_details(listing: Listing) -> bool:
+    """Página do anúncio ainda não lida (ex.: bloqueio) ou lida por uma versão antiga do parser."""
+    return (listing.raw_json or {}).get("_detail_v") != DETAIL_VERSION
+
+
+def enrich_with_details(db: Session, fetcher: Fetcher, listing: Listing,
+                        run_id: int | None = None) -> None:
+    """Abre a página do anúncio: descrição completa, ficha, vendedor e data original."""
     detail = parse_ad_page(fetcher.get(listing.url))
-    if not detail:
-        return
-    listing.description = detail.description or listing.description
-    listing.posted_at = listing.posted_at or detail.posted_at
-    if not listing.seller:
-        listing.seller = _get_or_create_seller(db, detail)
-    if detail.description:
-        # A descrição pode revelar o modelo/tamanho que o título omitiu
-        attrs = extract_attributes(listing.title, detail.description)
-        listing.model_code = listing.model_code or attrs.model_code
-        listing.screen_size = listing.screen_size or attrs.screen_size
-        if attrs.model_line and listing.model_line in (None, "OLED"):
-            listing.model_line = attrs.model_line
-        listing.brand = listing.brand or attrs.brand
+    if detail and detail.olx_id and detail.olx_id != listing.olx_id:
+        log.warning("A página de %s trouxe o anúncio %s; ignorando", listing.olx_id, detail.olx_id)
+        if needs_details(listing):  # descrição de antes da checagem pode ter vindo da página errada
+            listing.description = None
+        detail = None
+    if detail:
+        listing.title = detail.title or listing.title
+        if detail.description:
+            listing.description = detail.description
+        listing.posted_at = detail.posted_at or listing.posted_at
+        listing.image_url = detail.image_url or listing.image_url
+        listing.location = detail.location or listing.location
+        listing.state = detail.state or listing.state
+        if detail.seller_id:
+            listing.seller = _get_or_create_seller(db, detail)
+        _record_price(db, listing, detail.price, run_id)
+        _merge_raw(listing, detail)
+    raw = dict(listing.raw_json or {})
+    raw["_detail_v"] = DETAIL_VERSION  # mesmo sem dados (anúncio removido): não tenta de novo
+    listing.raw_json = raw
+    # A descrição e a ficha podem revelar o modelo/tamanho que o título omitiu
+    refresh_attributes(db, listing)
 
 
 def run_search(db: Session, term: SearchTerm, fetcher: Fetcher,
@@ -134,6 +179,12 @@ def run_search(db: Session, term: SearchTerm, fetcher: Fetcher,
                 if ad.olx_id in seen_ids:
                     continue
                 seen_ids.add(ad.olx_id)
+                if not is_tv_ad(ad):
+                    # Acessório: não entra (e sai do painel, se tiver entrado antes)
+                    old = db.scalar(select(Listing).where(Listing.olx_id == ad.olx_id))
+                    if old:
+                        old.is_active = False
+                    continue
                 listing, is_new = upsert_listing(db, ad, term, run)
                 touched.append(listing)
                 if is_new:
@@ -142,20 +193,18 @@ def run_search(db: Session, term: SearchTerm, fetcher: Fetcher,
 
         detail_note = None
         if fetch_details:
-            # Novos e os que ficaram sem descrição em execuções anteriores (ex.: bloqueio)
-            pending = [l for l in touched if not l.description][:config.MAX_DETAILS_PER_RUN]
+            # Os sem descrição primeiro; depois os lidos por uma versão antiga do parser
+            pending = sorted((l for l in touched if needs_details(l)),
+                             key=lambda l: l.description is not None)[:config.MAX_DETAILS_PER_RUN]
             for i, listing in enumerate(pending):
                 try:
-                    enrich_with_details(db, fetcher, listing)
-                    # Atualiza o grupo de preço com o que a descrição revelou
-                    listing.category = get_or_create_category(
-                        db, listing.brand, listing.model_line, listing.screen_size)
+                    enrich_with_details(db, fetcher, listing, run.id)
                     db.commit()
                 except BlockedError as exc:
                     # A busca já foi salva; só para de abrir anúncios por hoje
                     db.rollback()
                     detail_note = (f"Detalhes bloqueados após {i} de {len(pending)} "
-                                   f"anúncios sem descrição: {exc}")
+                                   f"anúncios a abrir: {exc}")
                     log.warning(detail_note)
                     break
                 except Exception as exc:  # um anúncio ruim não derruba a execução
@@ -179,10 +228,11 @@ def run_search(db: Session, term: SearchTerm, fetcher: Fetcher,
             if listing.olx_id not in seen_ids and (utcnow() - listing.last_seen_at).days >= 7:
                 listing.is_active = False
 
-    # Estado do item, avaliação de preço e score (mesmo se a busca parou no meio)
+    # Estado do item, avaliação de preço e score de tudo o que foi visto hoje (mesmo se a
+    # busca parou no meio): a ficha, a descrição e o grupo de comparação podem ter mudado
     try:
-        from app.pipeline import needs_processing, process
-        process(db, [l for l in touched if needs_processing(l)])
+        from app.pipeline import process
+        process(db, [l for l in touched if l.is_active])
     except Exception:
         db.rollback()
         log.exception("Falha no pós-processamento")
